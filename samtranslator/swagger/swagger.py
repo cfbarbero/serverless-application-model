@@ -157,9 +157,9 @@ class SwaggerEditor(object):
 
         path_dict = self.get_path(path)
         path_dict[method][self._X_APIGW_INTEGRATION] = {
-                'type': 'aws_proxy',
-                'httpMethod': 'POST',
-                'uri': integration_uri
+            'type': 'aws_proxy',
+            'httpMethod': 'POST',
+            'uri': integration_uri
         }
 
         method_auth_config = method_auth_config or {}
@@ -383,7 +383,7 @@ class SwaggerEditor(object):
         # Allow-Methods is comma separated string
         return ','.join(allow_methods)
 
-    def add_authorizers(self, authorizers):
+    def add_authorizers_security_definitions(self, authorizers):
         """
         Add Authorizer definitions to the securityDefinitions part of Swagger.
 
@@ -414,23 +414,27 @@ class SwaggerEditor(object):
 
     def add_auth_to_method(self, path, method_name, auth, api):
         """
-        Adds auth settings for this path/method. Auth settings currently consist solely of Authorizers
-        but this method will eventually include setting other auth settings such as API Key,
-        Resource Policy, etc.
+        Adds auth settings for this path/method. Auth settings currently consist of Authorizers and ApiKeyRequired
+        but this method will eventually include setting other auth settings such as Resource Policy, etc.
 
         :param string path: Path name
         :param string method_name: Method name
-        :param dict auth: Auth configuration such as Authorizers, ApiKey, ResourcePolicy (only Authorizers supported
-                          currently)
+        :param dict auth: Auth configuration such as Authorizers, ApiKeyRequired, ResourcePolicy
+                          (Authorizers and ApiKeyRequired supported currently)
         :param dict api: Reference to the related Api's properties as defined in the template.
         """
+        api_auth = api.get('Auth')
         method_authorizer = auth and auth.get('Authorizer')
         if method_authorizer:
-            api_auth = api.get('Auth')
+
             api_authorizers = api_auth and api_auth.get('Authorizers')
             default_authorizer = api_auth and api_auth.get('DefaultAuthorizer')
 
             self.set_method_authorizer(path, method_name, method_authorizer, api_authorizers, default_authorizer)
+
+        method_apikey_required_setting = auth and auth.get('ApiKeyRequired')
+        if method_apikey_required_setting != None:
+            self.set_method_apikey_handling(path, method_name, method_apikey_required_setting, is_default=False)
 
     def set_method_authorizer(self, path, method_name, authorizer_name, authorizers, default_authorizer,
                               is_default=False):
@@ -516,6 +520,96 @@ class SwaggerEditor(object):
                         self.security_definitions = aws_iam_security_definition
                     elif 'AWS_IAM' not in self.security_definitions:
                         self.security_definitions.update(aws_iam_security_definition)
+
+    def add_apikey_security_definition(self):
+        """
+        Adds api_key definition to the securityDefinitions part of Swagger.
+        Note: this method is idempotent
+        """
+        self.security_definitions = self.security_definitions or {}
+
+        if 'api_key' not in self.security_definitions:
+            self.security_definitions['api_key'] = {
+                "type": "apiKey",
+                "name": "x-api-key",
+                "in": "header"
+            }
+
+    def set_path_default_apikey_required(self, path):
+        """
+        Adds the ApiKey security for each method on this path unless ApiKeyRequired
+        was defined at the Function/Path/Method level
+
+        :param string path: Path name
+        """
+
+        for method_name, method in self.get_path(path).items():
+            # Excluding paramters section
+            if method_name == "parameters":
+                continue
+            self.set_method_apikey_handling(path, method_name, apikey_required_setting=True, is_default=True)
+
+    def set_method_apikey_handling(self, path, method_name, apikey_required_setting,
+                                   is_default=False):
+        normalized_method_name = self._normalize_method_name(method_name)
+        # It is possible that the method could have two definitions in a Fn::If block.
+        for method_definition in self.get_method_contents(self.get_path(path)[normalized_method_name]):
+
+            # If no integration given, then we don't need to process this definition (could be AWS::NoValue)
+            if not self.method_definition_has_integration(method_definition):
+                continue
+            existing_security = method_definition.get('security', [])
+            apikey_security_names = set(['api_key', 'api_key_false'])
+            existing_non_apikey_security = []
+            existing_apikey_security = []
+
+            # Split existing security into ApiKey and everything else
+            # (e.g. sigv4 (AWS_IAM), authorizers, NONE (marker for ignoring default authorizer))
+            # We want to ensure only a single ApiKey security entry exists while keeping everything else
+            for security in existing_security:
+                if apikey_security_names.isdisjoint(security.keys()):
+                    existing_non_apikey_security.append(security)
+                else:
+                    existing_apikey_security.append(security)
+
+            # If this is the Api-level ApiKeyRequired setting we need to check for a
+            # method level ApiKey setting before applying the default. It would be simpler
+            # if instead we applied the default first and then simply
+            # overwrote it if necessary, however, the order in which things get
+            # applied (Function Api Events first; then Api Resource) complicates it.
+            if is_default:
+                # Check if Function/Path/Method specified 'False' for ApiKeyRequired
+                if existing_apikey_security and existing_apikey_security[0] == 'api_key_false':
+                    del existing_apikey_security[0]
+
+                # Existing 'api_key' security found (defined at Funcion/Path/Method); use that instead of default
+                elif existing_apikey_security:
+                    apikey_security = existing_apikey_security
+
+                # No existing ApiKey found; use default
+                elif apikey_required_setting:
+                    security_dict = {}
+                    security_dict['api_key'] = []
+                    apikey_security = [security_dict]
+
+            # This is a Function/Path/Method level ApiKey; set it
+            else:
+                if apikey_required_setting:
+                    security_dict = {}
+                    security_dict['api_key'] = []
+                    apikey_security = [security_dict]
+                elif apikey_required_setting is not None and not apikey_required_setting:
+                    # The method explicitly does NOT require apikey and there is an API default
+                    # so let's add a marker 'api_key_false' so that we don't incorrectly override
+                    # with the api default
+                    security_dict = {}
+                    security_dict['api_key_false'] = []
+                    apikey_security = [security_dict]
+
+            security = existing_non_apikey_security + apikey_security
+
+            if security:
+                method_definition['security'] = security
 
     def add_gateway_responses(self, gateway_responses):
         """

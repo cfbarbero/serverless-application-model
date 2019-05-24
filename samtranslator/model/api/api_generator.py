@@ -19,8 +19,8 @@ CorsProperties = namedtuple("_CorsProperties", ["AllowMethods", "AllowHeaders", 
 # Default the Cors Properties to '*' wildcard and False AllowCredentials. Other properties are actually Optional
 CorsProperties.__new__.__defaults__ = (None, None, _CORS_WILDCARD, None, False)
 
-AuthProperties = namedtuple("_AuthProperties", ["Authorizers", "DefaultAuthorizer", "InvokeRole"])
-AuthProperties.__new__.__defaults__ = (None, None, None)
+AuthProperties = namedtuple("_AuthProperties", ["Authorizers", "DefaultAuthorizer", "InvokeRole", "ApiKeyRequired"])
+AuthProperties.__new__.__defaults__ = (None, None, None, None)
 
 GatewayResponseProperties = ["ResponseParameters", "ResponseTemplates", "StatusCode"]
 
@@ -274,8 +274,12 @@ class ApiGenerator(object):
         authorizers = self._get_authorizers(auth_properties.Authorizers, auth_properties.DefaultAuthorizer)
 
         if authorizers:
-            swagger_editor.add_authorizers(authorizers)
+            swagger_editor.add_authorizers_security_definitions(authorizers)
             self._set_default_authorizer(swagger_editor, authorizers, auth_properties.DefaultAuthorizer)
+
+        if auth_properties.ApiKeyRequired:
+            swagger_editor.add_apikey_security_definition()
+            self._set_default_apikey_required(swagger_editor)
 
         # Assign the Swagger back to template
         self.definition_body = swagger_editor.swagger
@@ -412,6 +416,10 @@ class ApiGenerator(object):
 
         for path in swagger_editor.iter_on_path():
             swagger_editor.set_path_default_authorizer(path, default_authorizer, authorizers=authorizers)
+
+    def _set_default_apikey_required(self, swagger_editor):
+        for path in swagger_editor.iter_on_path():
+            swagger_editor.set_path_default_apikey_required(path)
 
     def _set_endpoint_configuration(self, rest_api, value):
         """
