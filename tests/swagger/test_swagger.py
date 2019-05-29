@@ -93,6 +93,7 @@ class TestSwaggerEditor_has_path(TestCase):
         self.assertTrue(self.editor.has_path("badpath"))
         self.assertFalse(self.editor.has_path("badpath", "somemethod"))
 
+
 class TestSwaggerEditor_has_integration(TestCase):
 
     def setUp(self):
@@ -687,6 +688,7 @@ class TestSwaggerEditor_options_method_response_for_cors(TestCase):
         actual = options_config[_X_INTEGRATION]["responses"]["default"]["responseParameters"]
         self.assertEqual(expected, actual)
 
+
 class TestSwaggerEditor_make_cors_allowed_methods_for_path(TestCase):
 
     def setUp(self):
@@ -789,3 +791,34 @@ class TestSwaggerEditor_is_valid(TestCase):
     ])
     def test_must_fail_for_invalid_values(self, data, case):
         self.assertFalse(SwaggerEditor.is_valid(data), "Swagger dictionary with {} must not be valid".format(case))
+
+
+class TestSwaggerEditor_add_auth(TestCase):
+
+    def setUp(self):
+
+        self.original_swagger = {
+            "swagger": "2.0",
+            "paths": {
+                "/foo": {},
+                "/withoptions": {
+                    "options": {"some": "value"}
+                },
+                "/bad": "some value"
+            }
+        }
+
+        self.editor = SwaggerEditor(self.original_swagger)
+
+    def test_add_apikey_security_definition_is_added(self):
+        expected = {
+            "type": "apiKey",
+            "name": "x-api-key",
+            "in": "header"
+        }
+
+        self.editor.add_apikey_security_definition()
+        self.assertIn('securityDefinitions', self.editor.swagger)
+        self.assertIn('api_key', self.editor.swagger["securityDefinitions"])
+        self.assertEqual(expected, self.editor.swagger["securityDefinitions"]['api_key'])
+

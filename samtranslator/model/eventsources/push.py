@@ -535,9 +535,9 @@ class Api(PushEventSource):
 
         if self.Auth:
             method_authorizer = self.Auth.get('Authorizer')
+            api_auth = api.get('Auth')
 
             if method_authorizer:
-                api_auth = api.get('Auth')
                 api_authorizers = api_auth and api_auth.get('Authorizers')
 
                 if method_authorizer != 'AWS_IAM':
@@ -564,14 +564,14 @@ class Api(PushEventSource):
 
             apikey_required_setting = self.Auth.get('ApiKeyRequired')
             apikey_required_setting_is_false = apikey_required_setting is not None and not apikey_required_setting
-            if apikey_required_setting_is_false:
+            if apikey_required_setting_is_false and not api_auth.get('ApiKeyRequired'):
                 raise InvalidEventException(
                     self.relative_id,
                     'Unable to set ApiKeyRequired [False] on API method [{method}] for path [{path}] '
                     'because the related API does not specify any ApiKeyRequired.'.format(
                         method=self.Method, path=self.Path))
 
-            if method_authorizer or apikey_required_setting:
+            if method_authorizer or apikey_required_setting is not None:
                 if apikey_required_setting:
                     editor.add_apikey_security_definition()
                 editor.add_auth_to_method(api=api, path=self.Path, method_name=self.Method, auth=self.Auth)

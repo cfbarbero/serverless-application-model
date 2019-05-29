@@ -562,6 +562,7 @@ class SwaggerEditor(object):
             apikey_security_names = set(['api_key', 'api_key_false'])
             existing_non_apikey_security = []
             existing_apikey_security = []
+            apikey_security = []
 
             # Split existing security into ApiKey and everything else
             # (e.g. sigv4 (AWS_IAM), authorizers, NONE (marker for ignoring default authorizer))
@@ -579,8 +580,17 @@ class SwaggerEditor(object):
             # applied (Function Api Events first; then Api Resource) complicates it.
             if is_default:
                 # Check if Function/Path/Method specified 'False' for ApiKeyRequired
-                if existing_apikey_security and existing_apikey_security[0] == 'api_key_false':
-                    del existing_apikey_security[0]
+                apikeyfalse_idx = -1
+                for idx, security in enumerate(existing_apikey_security):
+                    is_none = any(key == 'api_key_false' for key in security.keys())
+
+                    if is_none:
+                        apikeyfalse_idx = idx
+                        break
+
+                # NONE was found; remove it and don't add the DefaultAuthorizer
+                if apikeyfalse_idx > -1:
+                    del existing_apikey_security[apikeyfalse_idx]
 
                 # Existing 'api_key' security found (defined at Funcion/Path/Method); use that instead of default
                 elif existing_apikey_security:
@@ -608,7 +618,7 @@ class SwaggerEditor(object):
 
             security = existing_non_apikey_security + apikey_security
 
-            if security:
+            if security != existing_security:
                 method_definition['security'] = security
 
     def add_gateway_responses(self, gateway_responses):
