@@ -410,7 +410,11 @@ class SwaggerEditor(object):
         }
 
         self.security_definitions = self.security_definitions or {}
-        self.security_definitions.update(aws_iam_security_definition)
+
+        # Only add the security definition if it doesn't exist.  This helps ensure
+        # that we minimize changes to the swagger in the case of user defined swagger
+        if 'AWS_IAM' not in self.security_definitions:
+            self.security_definitions.update(aws_iam_security_definition)
 
     def add_apikey_security_definition(self):
         """
@@ -427,7 +431,11 @@ class SwaggerEditor(object):
         }
 
         self.security_definitions = self.security_definitions or {}
-        self.security_definitions.update(api_key_security_definition)
+
+        # Only add the security definition if it doesn't exist.  This helps ensure
+        # that we minimize changes to the swagger in the case of user defined swagger
+        if 'api_key' not in self.security_definitions:
+            self.security_definitions.update(api_key_security_definition)
 
     def set_path_default_authorizer(self, path, default_authorizer, authorizers):
         """
